@@ -29,6 +29,7 @@
   },
   "type": "module",
   "dependencies": {
+    "@sveltejs/adapter-netlify": "^2.0.6",
     "@sveltejs/adapter-node": "^1.2.3",
     "camelcase-keys": "^8.0.2",
     "pg-promise": "^11.4.3",
