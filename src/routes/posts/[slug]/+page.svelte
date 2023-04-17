@@ -7,18 +7,24 @@
   import { goto, invalidateAll } from '$app/navigation';
   import Footer from '$lib/components/Footer.svelte';
   import Post from '$lib/components/Post.svelte';
-  // import NotEditable from '$lib/components/NotEditable.svelte';
   import EditorToolbar from '$lib/components/EditorToolbar.svelte';
   import Reply from '$lib/components/Reply.svelte';
-  import ReplyPlaceholder from '$lib/components/ReplyPlaceholder.svelte';
+  import { enhance } from '$app/forms';
+
+  import { dev } from '$app/environment';
+
+  const ORIGIN = import.meta.env.VITE_ORIGIN;
 
   export let data;
+  export let form;
 
   let showUserMenu = false;
   let editable, title, teaser, content, createdAt, updatedAt, replies;
+  let showConnectPrompt;
+  let connectTo;
 
+  $: as = data.as; // guest session
   $: currentUser = data.currentUser;
-
   $: {
     // HACK: To make sure this is only run when the parent passes in new data
     data = data;
@@ -40,21 +46,21 @@
     showUserMenu = false;
   }
 
-  async function deleteArticle() {
+  async function deletePost() {
     if (!currentUser) return alert('Sorry, you are not authorized.');
     try {
-      fetchJSON('POST', '/api/delete-article', {
+      await fetchJSON('POST', '/api/delete-post', {
         slug: data.slug
       });
       goto('/blog');
     } catch (err) {
       console.error(err);
-      alert('Error deleting the article. Try again.');
+      alert('Error deleting the post. Try again.');
       window.location.reload();
     }
   }
 
-  async function saveArticle() {
+  async function savePost() {
     if (!currentUser) return alert('Sorry, you are not authorized.');
     const teaser = extractTeaser(document.getElementById('post_content'));
     try {
@@ -69,25 +75,14 @@
     } catch (err) {
       console.error(err);
       alert(
-        'There was an error. You can try again, but before that, please just copy and paste your article into a safe place.'
+        'There was an error. You can try again, but before that, please just copy and paste your post into a safe place.'
       );
     }
   }
 
-  async function postReply(event) {
-    if (!currentUser) return alert('Sorry, you are not authorized.'); // TODO: redirect to own users website, send articleId as query param
-    try {
-      await fetchJSON('POST', '/api/replies', {
-        articleId: data.articleId,
-        author: 'ME', //todo: get author url here?
-        content: event.detail
-      });
-      await invalidateAll();
-    } catch (err) {
-      console.error(err);
-      alert('There was an error');
-    }
-  }
+  $: replyingMember = currentUser ? ORIGIN : as;
+
+  let replyMessage = '';
 </script>
 
 <svelte:head>
@@ -96,7 +91,7 @@
 </svelte:head>
 
 {#if editable}
-  <EditorToolbar {currentUser} on:cancel={initOrReset} on:save={saveArticle} />
+  <EditorToolbar {currentUser} on:cancel={initOrReset} on:save={savePost} />
 {/if}
 
 <WebsiteNav bind:editable bind:showUserMenu {currentUser} />
@@ -106,8 +101,34 @@
     <form class="w-full block" method="POST">
       <div class="w-full flex flex-col space-y-4 p-4 sm:p-6">
         <PrimaryButton on:click={toggleEdit}>Edit post</PrimaryButton>
-        <PrimaryButton type="button" on:click={deleteArticle}>Delete post</PrimaryButton>
+        <PrimaryButton type="button" on:click={deletePost}>Delete post</PrimaryButton>
         <LoginMenu {currentUser} />
+      </div>
+    </form>
+  </Modal>
+{/if}
+
+{#if showConnectPrompt}
+  <Modal on:close={() => (showConnectPrompt = false)}>
+    <form
+      class="w-full block"
+      action={`${dev ? 'http' : 'https'}://${connectTo}/connect`}
+      method="GET"
+    >
+      <div class="w-full flex flex-col space-y-4 p-4 sm:p-6">
+        <h1 class="text-2xl sm:text-3xl font-bold pt-1">Enter your domain to authenticate *</h1>
+        <input bind:value={connectTo} placeholder="homenotalone.net" type="text" />
+        <input type="hidden" name="origin" value={ORIGIN} />
+        <input type="hidden" name="path" value={`/posts/${data.slug}`} />
+        <PrimaryButton type="submit">Continue</PrimaryButton>
+        <p class="text-sm pt-8">
+          * You need a website that supports the HNA (Home, Not Alone) protocol. <a
+            class="underline"
+            href="https://github.com/homenotalone/homenotalone"
+            target="_blank"
+            rel="noreferrer">Follow these steps</a
+          > to set one up for yourself.
+        </p>
       </div>
     </form>
   </Modal>
@@ -119,12 +140,12 @@
   bind:createdAt
   {editable}
   on:cancel={initOrReset}
-  on:save={saveArticle}
+  on:save={savePost}
 />
 
 <!-- Reply placeholder -->
-<div class="max-w-screen-md mx-auto px-6 pb-12 sm:pb-24 sm:pl-16">
-  <div id="article_replies" class="prose-sm sm:prose-xl">
+<div class="max-w-screen-md mx-auto px-6 pb-12 sm:pb-24">
+  <div id="replies" class="prose-sm sm:prose-xl">
     {#if replies.length}
       <div class="flex items-baseline gap-x-2 text-gray-500">
         {replies.length}
@@ -145,12 +166,56 @@
     {:else}
       <div class="">No replies yet</div>
     {/if}
+
     {#each replies as reply}
       {#if reply.content}
-        <Reply content={reply.content} published={reply.createdAt} author={reply.authorDomain} />
+        <Reply content={reply.content} published={reply.createdAt} author={reply.origin} />
       {/if}
     {/each}
-    <ReplyPlaceholder on:cancel={initOrReset} on:save={postReply} bind:draft={editable} />
+
+    <form class="w-full block" method="POST" action="?/reply" use:enhance>
+      <div class="border border-black p-4 mt-8 mb-6">
+        <div class="text-sm">
+          {#if replyingMember}
+            <span class="text-gray-500">Replying as</span>
+            <span class="font-bold">{replyingMember}</span>
+          {:else}
+            <a class="underline" href="#xyz" on:click={() => (showConnectPrompt = true)}
+              >Connect your domain</a
+            > to reply.
+          {/if}
+        </div>
+        <textarea
+          class="w-full border-0 p-0 mt-6 focus:outline-none focus:border-none focus:ring-0"
+          rows="5"
+          placeholder="Your message"
+          bind:value={replyMessage}
+          name="replyContent"
+          required
+          on:keydown={e => {
+            if (!replyingMember) e.preventDefault();
+          }}
+          on:click={() => {
+            if (!replyingMember) {
+              showConnectPrompt = true;
+            }
+          }}
+        />
+        <input type="hidden" name="replyingMember" value={replyingMember} />
+        <input type="hidden" name="postId" value={data.postId} />
+      </div>
+      <PrimaryButton type="submit">Send reply</PrimaryButton>
+      {#if form?.notConnected}
+        <p class="p-4 bg-red-100 text-red-600 my-4 rounded-md">
+          Could not get connection details from reply origin. Please try again.
+        </p>
+      {/if}
+      {#if form?.unableToReply}
+        <p class="p-4 bg-red-100 text-red-600 my-4 rounded-md">
+          Oops! Can't post reply right now. Please try again.
+        </p>
+      {/if}
+    </form>
   </div>
 </div>
 

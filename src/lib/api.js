@@ -85,12 +85,51 @@ export async function getPosts() {
  */
 export async function getFeedEntries() {
   return await db.tx('get-feed-entries', async t => {
-    return await t.any(
-      'SELECT * FROM feed_entries ORDER BY created_at DESC'
-    );
+    return await t.any('SELECT * FROM feed_entries ORDER BY created_at DESC');
   });
 }
 
+/**
+ * After another domain added you as a connection, you create a subscription to send them
+ * "push notifications" to update their feed.
+ */
+export async function addSubscription(origin) {
+  console.info('TODO: Implement');
+}
+
+/**
+ * This should be called each time a new post/reply is created/updated.
+ *
+ * We could run these requests in parallel and don't care if they succeed or not
+ * worst thing that could happen is that someone's feed is not updated
+ */
+export async function updateRemoteFeeds(path) {
+  // go through all subscriptions and update the feed
+  //
+  // Feed entry is identified by origin+path and for now we push the following data to
+  // update the remote feed:
+  //
+  // - title, teaser, replies
+  //
+  // replies contains an array of reply meta info, used for verification
+  // For example:
+  // { id: 'acb4edde-ad86-4c9b-9e69-1fcfa0c48aaf', origin: 'foo.com' }
+
+  // Iterate through all remotes and do something like this...
+  // await fetchJSON('POST', 'https://remotehost.com/api/update-feed', ...)
+
+  console.info('TODO: Implement');
+}
+
+/**
+ * This is what is called on the receiver end by /api/update-feed
+ */
+export async function updateRemoteFeeds2(origin, path) {
+  // POST /api/update-feed should have CORS set up in such a way,
+  // that it accepts requests from all origins listed in connections, and rejects any other
+  // create or update feed_entry at given origin+path
+  console.info('TODO: Implement');
+}
 
 /**
  * Retrieve post by a given slug
@@ -216,4 +255,23 @@ export async function createOrUpdateCounter(counterId) {
  */
 function __getDateTimeMinutesAfter(minutes) {
   return new Date(new Date().getTime() + minutes * 60000).toISOString();
+}
+
+/**
+ * Create a new connection, or return an existing one if already established
+ * @param targetOrigin
+ */
+export async function ensureEstablishedConnection(targetOrigin) {
+  return await db.tx('ensure-connection', async t => {
+    return t.oneOrNone(
+      'INSERT INTO connections (origin) SELECT $1 WHERE NOT EXISTS (SELECT 1 FROM connections WHERE origin = $1) RETURNING connection_id',
+      [targetOrigin]
+    );
+  });
+}
+
+export async function checkConnection(origin) {
+  return await db.tx('check-connection', async t => {
+    return t.oneOrNone('SELECT connection_id FROM connections WHERE origin = $1', [origin]);
+  });
 }
